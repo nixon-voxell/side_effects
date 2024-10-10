@@ -4,7 +4,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::INPUT_REPLICATION_GROUP;
 
-use super::player::PlayerId;
+use super::{player::PlayerId, LocalEntity};
 
 #[derive(Bundle)]
 pub struct ReplicateInputBundle {
@@ -22,11 +22,23 @@ impl ReplicateInputBundle {
                 group: INPUT_REPLICATION_GROUP,
                 ..default()
             },
-            input: InputManagerBundle::<PlayerAction> {
-                action_state: ActionState::default(),
-                input_map: PlayerAction::input_map(),
-            },
+            input: InputManagerBundle::with_map(PlayerAction::input_map()),
             prepredicted: PrePredicted::default(),
+        }
+    }
+}
+
+#[derive(Bundle)]
+pub struct LocalInputBundle {
+    pub input: InputManagerBundle<PlayerAction>,
+    pub local: LocalEntity,
+}
+
+impl Default for LocalInputBundle {
+    fn default() -> Self {
+        Self {
+            input: InputManagerBundle::with_map(PlayerAction::input_map()),
+            local: LocalEntity,
         }
     }
 }
@@ -55,4 +67,12 @@ impl PlayerAction {
 
         input_map
     }
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum MovementSet {
+    // Input handling.
+    Input,
+    // Apply physics.
+    Physics,
 }

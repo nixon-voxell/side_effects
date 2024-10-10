@@ -1,13 +1,15 @@
 //! This module contains the shared code between the client and the server.
-use avian2d::prelude::*;
-use bevy::{prelude::*, render::view::RenderLayers, utils::Duration};
+use bevy::{prelude::*, sprite::Mesh2dHandle, utils::Duration};
 use blenvy::BlenvyPlugin;
+use input::MovementSet;
 use lightyear::prelude::*;
 
-pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
-pub const SERVER_REPLICATION_INTERVAL: Duration = Duration::from_millis(20);
+pub const FIXED_TIMESTEP_HZ: f64 = 60.0;
+pub const SERVER_REPLICATION_INTERVAL: Duration = Duration::from_millis(100);
 
+pub mod effector;
 pub mod input;
+pub mod physics;
 pub mod player;
 
 /// Shared logic.
@@ -15,55 +17,63 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((PhysicsPlugins::new(FixedUpdate), BlenvyPlugin::default()))
-            .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
-            .insert_resource(Gravity(Vec2::ZERO));
+        app.add_plugins(BlenvyPlugin::default());
 
         app.configure_sets(
             FixedUpdate,
-            (
-                // Make sure that any physics simulation happens after the Main SystemSet
-                // (where we apply user's actions)
-                (
-                    PhysicsSet::Prepare,
-                    PhysicsSet::StepSimulation,
-                    PhysicsSet::Sync,
-                )
-                    .in_set(FixedSet::Physics),
-                (FixedSet::Main, FixedSet::Physics).chain(),
-            ),
+            (MovementSet::Input, MovementSet::Physics).chain(),
         );
 
         app.add_plugins((
             crate::protocol::ProtocolPlugin,
             crate::ui::UiPlugin,
             player::PlayerPlugin,
+            physics::PhysicsPlugin,
+            effector::EffectorPlugin,
         ))
-        .add_systems(Startup, spawn_ui_camera);
+        .add_systems(
+            Update,
+            (convert_3d_to_2d_mesh, convert_std_to_color_material),
+        );
     }
 }
 
-/// Spawn camera specifically only for Ui rendering (render layer 1).
-fn spawn_ui_camera(mut commands: Commands) {
-    commands.spawn((
-        Name::new("Ui Camera"),
-        Camera2dBundle {
-            camera: Camera {
-                clear_color: Color::NONE.into(),
-                order: 1,
-                ..default()
-            },
-            ..default()
-        },
-        // Render all UI to this camera.
-        // Not strictly necessary since we only use one camera,
-        // but if we don't use this component, our UI will disappear as soon
-        // as we add another camera. This includes indirect ways of adding cameras like using
-        // [ui node outlines](https://bevyengine.org/news/bevy-0-14/#ui-node-outline-gizmos)
-        // for debugging. So it's good to have this here for future-proofing.
-        IsDefaultUiCamera,
-        RenderLayers::layer(1),
-    ));
+/// Convert all 3d [`Handle<Mesh>`] to 2d [`Mesh2dHandle`].
+fn convert_3d_to_2d_mesh(mut commands: Commands, q_meshes: Query<(&Handle<Mesh>, &Name, Entity)>) {
+    for (mesh_handle, name, entity) in q_meshes.iter() {
+        commands
+            .entity(entity)
+            .remove::<Handle<Mesh>>()
+            .insert(Mesh2dHandle(mesh_handle.clone()));
+
+        info!("Converted {name:?} 3d mesh into 2d mesh.");
+    }
+}
+
+/// Convert all [`StandardMaterial`] to [`ColorMaterial`].
+fn convert_std_to_color_material(
+    mut commands: Commands,
+    q_meshes: Query<(&Handle<StandardMaterial>, &Name, Entity)>,
+    std_materials: Res<Assets<StandardMaterial>>,
+    mut color_materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (std_material, name, entity) in q_meshes.iter() {
+        let Some(std_material) = std_materials.get(std_material) else {
+            continue;
+        };
+
+        let color_material = color_materials.add(ColorMaterial {
+            color: Color::from(std_material.base_color.to_linear() + std_material.emissive),
+            texture: std_material.base_color_texture.clone(),
+        });
+
+        commands
+            .entity(entity)
+            .remove::<Handle<StandardMaterial>>()
+            .insert(color_material);
+
+        info!("Converted {name:?} standard material into color material.");
+    }
 }
 
 /// The [`SharedConfig`] must be shared between the `ClientConfig` and `ServerConfig`
@@ -78,10 +88,6 @@ pub fn shared_config() -> SharedConfig {
     }
 }
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum FixedSet {
-    // main fixed update systems (handle inputs)
-    Main,
-    // apply physics steps
-    Physics,
-}
+/// Specify that an entity is not supposed to be networked.
+#[derive(Component, Default, Debug, Clone, Copy)]
+pub struct LocalEntity;
