@@ -19143,7 +19143,7 @@
       "oneOf": [
         "Move",
         "Interact",
-        "UseItem"
+        "Attack"
       ],
       "short_name": "PlayerAction",
       "type": "string",

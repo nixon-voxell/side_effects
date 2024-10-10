@@ -2,14 +2,20 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::*;
+use weapon::BulletPlugin;
+
+use crate::shared::player;
 
 use super::{input::PlayerAction, FixedSet};
+
+pub mod weapon;
 
 pub(super) struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<PlayerMovement>()
+            .add_plugins(BulletPlugin)
             .add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
     }
 }
